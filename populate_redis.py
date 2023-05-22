@@ -2,10 +2,14 @@ import csv
 import redis
 import unidecode
 
+global redisConn, pipe
+
 redisConn = redis.Redis(
   host='redis-12746.c284.us-east1-2.gce.cloud.redislabs.com',
   port=12746,
   password='JYbSnXYUlb6DTjPEVLgynstCuh5J5Ot0')
+
+pipe = redisConn.pipeline()
 
 # format column names
 # dfData = pd.read_csv("twitter-csv/place.csv",delimiter=',',nrows=10)
@@ -25,6 +29,10 @@ def build_dictionary(file_name):
 
     # for each row in csv file
     for i,row in enumerate(csvreader):
+      # max number of rows to insert to database (limited cloud space)
+      if i==10000:
+        break
+
       # first row: dataset's column names
       # ex: _id	country	country_code	full_name	geo.bbox	geo.properties	geo.type	id	name	place_type
       if i == 0:
@@ -45,15 +53,16 @@ def build_dictionary(file_name):
   return dataset
 
 def populate_redis(file_name):
+  global pipe
   dataset = build_dictionary(file_name)
 
   for idx,data in enumerate(dataset[file_name]):
-    redisConn.hmset(file_name+":id:"+str(idx), data)
+    # print(idx)
+    pipe.hmset(file_name+":id:"+str(idx), data)
 
-csvFiles = ['data', 'media', 'place', 'pool', 'tweets', 'users']
+datasets = ['pool', 'users', 'tweets', 'place', 'media']
 
-populate_redis("users")
+populate_redis("tweets")
+pipe.execute()
 
 # ex: "place:id:1" -> [ "_id" -> "3bcc0c", "country" -> "Brasil", ... ]
-
-# redis-cli -u redis://default:JYbSnXYUlb6DTjPEVLgynstCuh5J5Ot0@redis-12746.c284.us-east1-2.gce.cloud.redislabs.com:12746
