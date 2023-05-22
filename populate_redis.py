@@ -1,7 +1,5 @@
 import csv
-import pandas as pd
 import redis
-import json
 import unidecode
 
 redisConn = redis.Redis(
@@ -46,12 +44,15 @@ def build_dictionary(file_name):
   
   return dataset
 
+def populate_redis(file_name):
+  dataset = build_dictionary(file_name)
 
-dataset = build_dictionary("place")
+  for idx,data in enumerate(dataset[file_name]):
+    redisConn.hmset(file_name+":id:"+str(idx), data)
 
-for idx,place in enumerate(dataset["place"]):
-  print(idx)
-  redisConn.hmset("place:id:"+str(idx), place)
+csvFiles = ['data', 'media', 'place', 'pool', 'tweets', 'users']
+
+populate_redis("users")
 
 # ex: "place:id:1" -> [ "_id" -> "3bcc0c", "country" -> "Brasil", ... ]
 
