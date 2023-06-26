@@ -1,21 +1,17 @@
 import csv
 import redis
 import unidecode
+import json
+from redis.commands.search.field import TextField, NumericField, TagField
+from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 
-global redisConn, pipe
+global redisConn, pipe, conf
 
 redisConn = redis.Redis(
-  host='redis-12746.c284.us-east1-2.gce.cloud.redislabs.com',
-  port=12746,
-  password='JYbSnXYUlb6DTjPEVLgynstCuh5J5Ot0')
+  host="localhost",
+  port=10001)
 
 pipe = redisConn.pipeline()
-
-# format column names
-# dfData = pd.read_csv("twitter-csv/place.csv",delimiter=',',nrows=10)
-# dfData.columns = dfData.columns.str.replace(r'.', '_')
-# dfData.rename(columns={'_id': 'item_id'}, inplace=True)
-# columns = dfData.columns.to_list()
 
 def build_dictionary(file_name):
   dataset = {file_name : list()}
@@ -29,8 +25,8 @@ def build_dictionary(file_name):
 
     # for each row in csv file
     for i,row in enumerate(csvreader):
-      # max number of rows to insert to database (limited cloud space)
-      if i==10000:
+      # max number of rows to insert to database
+      if i==50000:
         break
 
       # first row: dataset's column names
@@ -44,6 +40,7 @@ def build_dictionary(file_name):
       item = {}
 
       # for each row, map its attributes to their respective column names
+      # use unidecode to remove accents (not accepted by redis)
       # ex: dataset = { "places": [ {"_id":"3bcc0c", "country":"Brasil", ...}, {"_id":"abcj73", "country":"Estados Unidos", ...}, ... ] }
       for j,attr in enumerate(row):
         item[str(column_names[j])] = unidecode.unidecode(str(attr))
@@ -52,17 +49,33 @@ def build_dictionary(file_name):
   
   return dataset
 
+def populate_redis_as_json(file_name):
+  global pipe
+  dataset = build_dictionary(file_name)
+
+  for idx,data in enumerate(dataset[file_name]):
+    pipe.json().set(file_name+':'+str(idx), '$', data)
+
 def populate_redis(file_name):
   global pipe
   dataset = build_dictionary(file_name)
 
   for idx,data in enumerate(dataset[file_name]):
-    # print(idx)
-    pipe.hmset(file_name+":id:"+str(idx), data)
+    for column in data:
+      pipe.hset(file_name+':'+str(idx), column, data[column])
 
-datasets = ['pool', 'users', 'tweets', 'place', 'media']
+# populate_redis("media")
 
-populate_redis("tweets")
+index = "idx:user"
+index_def = IndexDefinition(prefix=["user:"])
+schema = (
+    NumericField("id"),
+    TextField("username"),
+    NumericField("public_metrics.followers_count")
+)
+pipe.ft(index).create_index(schema, definition=index_def)
+print(pipe.ft(index).info())
+
+# FT.CREATE idx:user ON hash PREFIX 1 "users:" SCHEMA id NUMERIC SORTABLE username TEXT SORTABLE public_metrics.followers_count NUMERIC SORTABLE
+
 pipe.execute()
-
-# ex: "place:id:1" -> [ "_id" -> "3bcc0c", "country" -> "Brasil", ... ]
